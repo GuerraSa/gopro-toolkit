@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        GoPro Cloud Toolkit
-// @description Bulk-manage your GoPro cloud library: live filters, stats, metadata export, download links, bulk download, duplicate finder and delete. Unofficial; dry run built in.
-// @version     1.4.0
+// @description Bulk-manage your GoPro cloud library: live filters, stats, metadata export, download links, bulk download and duplicate finder. Unofficial; dry run built in.
+// @version     1.5.0
 // @author      GuerraSa
 // @homepageURL https://github.com/GuerraSa/gopro-toolkit
 // @supportURL  https://github.com/GuerraSa/gopro-toolkit/issues
@@ -18,7 +18,6 @@
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
 // @grant       GM_download
-// @grant       unsafeWindow
 // @connect     api.gopro.com
 // @connect     *
 // ==/UserScript==
@@ -29,12 +28,12 @@
 // HOW IT WORKS
 //   1. Load library   : pages through GET api.gopro.com/media/search (metadata only, no files are moved)
 //   2. Filter         : everything is filtered locally, so the match count updates instantly
-//   3. Action         : stats / export / links / download / delete
+//   3. Action         : stats / export / links / download / albums / HiLights
 // Tick "Dry run" to list what an action WOULD do without doing it.
 (function () {
   'use strict';
 
-  const VERSION = '1.4.0';
+  const VERSION = '1.5.0';
   const API = 'https://api.gopro.com';
   const ACCEPT_SEARCH = 'application/vnd.gopro.jk.media.search+json; version=2.0.0';
   const ACCEPT_MEDIA = 'application/vnd.gopro.jk.media+json; version=2.0.0';
@@ -320,19 +319,11 @@
         <details class="settings"><summary>Advanced Settings</summary><fieldset>
           <legend>Parallel Downloads</legend><div class="input-wrapper"><input name="downloadConcurrency" value="2" min="1" max="5" type="number" required></div>
           <legend>Delay Between Downloads (ms)</legend><div class="input-wrapper"><input name="downloadDelayMs" value="1000" min="0" max="10000" type="number" required></div>
-          <legend>Delete Batch Size</legend><div class="input-wrapper"><input name="deleteBatchSize" value="1" min="1" max="25" type="number" required></div>
           <label class="form-control checkbox-control"><input name="skipDownloaded" value="true" type="checkbox" checked="checked"><span>Skip files already downloaded</span></label>
           <div class="settings-controls">
             <button name="save" type="submit" class="btn-primary">Save</button>
             <button name="default" type="button">Default</button>
             <button name="resetHistory" type="button" title="Forget which files were downloaded">Reset history</button>
-          </div>
-          <legend>Diagnostics</legend>
-          <span class="filter-note">Records what GoPro's own page sends to its API (no passwords or tokens), so a broken feature can be fixed exactly.</span>
-          <div class="settings-controls">
-            <button type="button" id="recordRequests">Record GoPro requests</button>
-            <button type="button" id="exportRecording">Export recording</button>
-            <button type="button" id="exportAlbumData" title="Save what GoPro returned when loading albums">Export album data</button>
           </div>
         </fieldset></details>
       </form>
@@ -352,7 +343,6 @@
           <button type="button" id="listHilights" title="Log the HiLight tag times of every matching clip">List HiLights</button>
           <button type="button" id="openHilightEditor" title="Preview clips and view / edit their HiLight tags">HiLight Editor</button>
           <button type="button" id="addToAlbum" title="Add the matching items to the album chosen below">Add to Album</button>
-          <button type="button" id="deleteCloud" title="Permanently delete from your GoPro cloud">Delete</button>
         </div>
         <div class="album-row">
           <span>Album:</span>
@@ -422,7 +412,6 @@
 
 #gptk .album-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 12px 8px; font-size: 12px; color: var(--text-secondary); }
 #gptk #albumSelect { min-width: 180px; max-width: 360px; height: 28px; padding: 0 6px; }
-#gptk #recordRequests.recording { background-color: var(--danger); color: #fff; border-color: transparent; }
 
 /* layout: keep "Choose Action" pinned on top; long filter text collapses */
 #gptk .main { display: flex; flex-direction: column; grid-template-rows: none; overflow-x: hidden; overflow-y: auto; }
@@ -441,8 +430,6 @@
 #gptk .lib-status.ok { color: var(--success); }
 #gptk .date-reset { font-size: 18px; color: var(--text-tertiary); justify-content: center; line-height: 1; }
 #gptk .date-reset:hover { color: var(--text-primary); }
-#gptk .action-buttons button#deleteCloud { color: var(--danger-hover); border-color: rgba(239, 68, 68, 0.35); }
-#gptk .action-buttons button#deleteCloud:not(:disabled):hover { background-color: var(--danger-muted); }
 #gptk .dry-run-toggle input { margin: 0; }
 #gptk .action-bar .dry-run-toggle { width: auto; margin-bottom: 0; }
 #gptk-launcher { position: fixed; right: 20px; bottom: 20px; z-index: 498; width: 46px; height: 46px; border-radius: 50%; background: #0c0c0e; color: #3b82f6; border: 1px solid rgba(255,255,255,0.16); display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 6px 24px rgba(0,0,0,0.45); transition: transform 0.12s ease; padding: 0; }
@@ -525,7 +512,7 @@
           localStorage.setItem(STORE_KEY, JSON.stringify(s));
       } catch (e) { log(`Could not save ${key}: ${errorMessage(e)}`, 'error'); }
   }
-  const settingsDefault = { downloadConcurrency: 2, downloadDelayMs: 1000, deleteBatchSize: 1, skipDownloaded: true };
+  const settingsDefault = { downloadConcurrency: 2, downloadDelayMs: 1000, skipDownloaded: true };
   function sanitizeInt(value, fallback, min, max) {
       const n = Math.floor(Number(value));
       return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
@@ -535,7 +522,6 @@
       return {
           downloadConcurrency: sanitizeInt(s.downloadConcurrency, settingsDefault.downloadConcurrency, 1, 5),
           downloadDelayMs: sanitizeInt(s.downloadDelayMs, settingsDefault.downloadDelayMs, 0, 10000),
-          deleteBatchSize: sanitizeInt(s.deleteBatchSize, settingsDefault.deleteBatchSize, 1, 25),
           skipDownloaded: s.skipDownloaded === undefined ? true : s.skipDownloaded === true || s.skipDownloaded === 'true',
       };
   }
@@ -578,6 +564,7 @@
           return { status: response.status, ok: response.ok, text: await response.text() };
       }
       catch (error) {
+          // shortcut: fetch errors can't tell "blocked" from "connection dropped after saving", so a write may go twice here; only matters on a flaky network
           if (typeof GM_xmlhttpRequest === 'function') return gmRequest(url, { method, headers, body });
           throw error;
       }
@@ -602,7 +589,9 @@
               catch (error) {
                   last = error instanceof Error ? error : new Error(String(error));
                   console.error(`[GoPro Toolkit] ${method} ${url.split('?')[0]} failed (attempt ${attempt}/${Api.MAX_RETRIES}): ${last.message}`);
-                  if ((last instanceof ApiError && !last.retryable) || attempt === Api.MAX_RETRIES) break;
+                  // a POST/PUT whose reply was lost may already be saved, so only resend it when GoPro said 429 (nothing was done)
+                  const canRetry = method === 'GET' || method === 'DELETE' || last.status === 429;
+                  if (!canRetry || (last instanceof ApiError && !last.retryable) || attempt === Api.MAX_RETRIES) break;
                   await sleep(Api.RETRY_BASE_MS * 2 ** (attempt - 1) + Math.random() * Api.RETRY_BASE_MS * 0.3);
               }
           }
@@ -635,10 +624,8 @@
       async listAlbums() {
           const found = new Map();
           let page = 1, totalPages = 1;
-          this.lastAlbumPages = [];
           while (page <= totalPages && page <= 50) {
               const data = await this.request(`${API}/media/items?label=mural&type=collection&exclude_root=true&page=${page}&per_page=30`, { accept: ACCEPT_MEDIA });
-              this.lastAlbumPages.push(data);
               totalPages = Number(data?._pages?.total_pages) || 1;
               for (const raw of data?.items ?? []) {
                   const a = normalizeAlbum(raw);
@@ -696,20 +683,10 @@
           const pick = vars.find((v) => v?.label === 'high_res_proxy_mp4') ?? vars.find((v) => v?.label === 'source');
           return pick?.url ?? null;
       }
-      /** Returns the list of per-item errors GoPro reported (empty = all deleted). */
-      async deleteMedia(ids) {
-          const data = await this.request(`${API}/media?ids=${ids.map(encodeURIComponent).join(',')}`, { method: 'DELETE', accept: ACCEPT_MEDIA });
-          return parseDeleteErrors(data);
-      }
   }
   Api.MAX_RETRIES = 3;
   Api.RETRY_BASE_MS = 1500;
 
-  function parseDeleteErrors(data) {
-      if (!data) return [];
-      const list = Array.isArray(data) ? data : Array.isArray(data?._embedded?.errors) ? data._embedded.errors : Array.isArray(data?.errors) ? data.errors : [];
-      return list.filter((e) => e && typeof e === 'object');
-  }
   function parseMoments(data) {
       const list = Array.isArray(data) ? data : data?._embedded?.moments ?? data?.moments ?? data?._embedded?.items ?? [];
       return list
@@ -717,14 +694,9 @@
           .filter((m) => m.time !== null)
           .sort((a, b) => a.time - b.time);
   }
-  /** Tag times are expected in milliseconds; if every tag fits inside the clip only when read as seconds, use seconds. */
-  function inferMomentUnit(moments, durationMs) {
-      if (!moments.length || !durationMs) return 'ms';
-      const max = Math.max(...moments.map((m) => m.time));
-      return max * 1000 <= durationMs && max < durationMs / 100 ? 's' : 'ms';
-  }
-  const toSeconds = (time, unit) => (unit === 's' ? time : time / 1000);
-  const fromSeconds = (sec, unit) => (unit === 's' ? Math.round(sec) : Math.round(sec * 1000));
+  // HiLight tag times are milliseconds from the start of the clip
+  const toSeconds = (ms) => ms / 1000;
+  const fromSeconds = (sec) => Math.round(sec * 1000);
   function formatClock(sec) {
       if (!Number.isFinite(sec)) return '?';
       const m = Math.floor(sec / 60), s = sec - m * 60;
@@ -995,7 +967,7 @@
   }
 
   // ════════════════════════════════════════════════════════════
-  //  Albums + request recorder
+  //  Albums
   // ════════════════════════════════════════════════════════════
   const isGoProApiUrl = (url) => /^https:\/\/api\.gopro\.com\//i.test(String(url));
   function normalizeAlbum(raw) {
@@ -1012,86 +984,7 @@
           createdAt: raw.created_at ?? null,
       };
   }
-  function redactUrl(url) {
-      try {
-          const u = new URL(String(url));
-          for (const k of [...u.searchParams.keys()]) {
-              if (/token|signature|key|auth|credential|^x-amz-/i.test(k)) u.searchParams.set(k, 'REDACTED');
-          }
-          return `${u.origin}${u.pathname}${u.search}`;
-      } catch { return String(url); }
-  }
   const clip = (text, n) => (text === null || text === undefined ? null : String(text).length > n ? `${String(text).slice(0, n)}…[${String(text).length - n} more chars]` : String(text));
-
-  /** Watches the GoPro page's own API calls (fetch + XHR). Requests always pass through unchanged. */
-  const recorder = { on: false, entries: [], max: 400, restore: null, onAlbums: null };
-  function pageWindow() { return typeof unsafeWindow !== 'undefined' ? unsafeWindow : window; }
-  function exportFn(fn, target) { return typeof exportFunction === 'function' ? exportFunction(fn, target) : fn; }
-  function recordEntry(method, url, reqBody, status, resText) {
-      if (!recorder.on || !isGoProApiUrl(url)) return;
-      const entry = { time: new Date().toISOString(), method: String(method).toUpperCase(), url: redactUrl(url), requestBody: clip(typeof reqBody === 'string' ? reqBody : reqBody ? '[non-text body]' : null, 2000), status, response: clip(resText, 4000) };
-      recorder.entries.push(entry);
-      if (recorder.entries.length > recorder.max) recorder.entries.shift();
-      log(`REC ${entry.method} ${new URL(entry.url).pathname} → ${status}`);
-      if (entry.method === 'GET' && /\/media\/items\?/.test(entry.url) && /type=collection/.test(entry.url) && resText) {
-          try {
-              const albums = (JSON.parse(resText)?.items ?? []).map(normalizeAlbum).filter(Boolean);
-              if (albums.length) recorder.onAlbums?.(albums);
-          } catch { /* not JSON */ }
-      }
-  }
-  function startRecorder() {
-      if (recorder.on) return;
-      const W = pageWindow();
-      const origFetch = W.fetch;
-      const proto = W.XMLHttpRequest?.prototype;
-      const origOpen = proto?.open, origSend = proto?.send;
-      const meta = new WeakMap();
-      if (typeof origFetch === 'function') {
-          W.fetch = exportFn(function (input, init) {
-              const p = origFetch.apply(this, arguments);
-              try {
-                  const url = typeof input === 'string' ? input : (input?.url ?? String(input));
-                  if (isGoProApiUrl(url)) {
-                      const method = init?.method ?? input?.method ?? 'GET';
-                      const body = init?.body;
-                      p.then((res) => (typeof res.clone === 'function' ? res.clone() : res).text().then((t) => recordEntry(method, url, body, res.status, t))).catch(() => {});
-                  }
-              } catch { /* never break the page */ }
-              return p;
-          }, W);
-      }
-      if (proto && origOpen && origSend) {
-          proto.open = exportFn(function (method, url) {
-              try { meta.set(this, { method: String(method), url: new URL(String(url), W.location.href).href }); } catch { /* ignore */ }
-              return origOpen.apply(this, arguments);
-          }, W);
-          proto.send = exportFn(function (body) {
-              try {
-                  const m = meta.get(this);
-                  if (m && isGoProApiUrl(m.url)) {
-                      const xhr = this;
-                      this.addEventListener('loadend', () => {
-                          let text = null;
-                          try { text = xhr.responseType === '' || xhr.responseType === 'text' ? xhr.responseText : `[${xhr.responseType} response]`; } catch { /* ignore */ }
-                          recordEntry(m.method, m.url, body, xhr.status, text);
-                      });
-                  }
-              } catch { /* ignore */ }
-              return origSend.apply(this, arguments);
-          }, W);
-      }
-      recorder.restore = () => {
-          if (typeof origFetch === 'function') W.fetch = origFetch;
-          if (proto && origOpen && origSend) { proto.open = origOpen; proto.send = origSend; }
-      };
-      recorder.on = true;
-  }
-  function stopRecorder() {
-      if (recorder.restore) { try { recorder.restore(); } catch { /* ignore */ } }
-      recorder.restore = null;
-      recorder.on = false;
-  }
 
   // ════════════════════════════════════════════════════════════
   //  Core
@@ -1104,7 +997,6 @@
       download: { label: 'Download', confirm: true },
       listHilights: { label: 'List HiLights', readOnly: true, alwaysRuns: true },
       addToAlbum: { label: 'Add to Album', confirm: true, needsAlbum: true },
-      deleteCloud: { label: 'Delete from cloud', confirm: true, destructive: true },
   };
 
   class Core {
@@ -1212,7 +1104,8 @@
               else log('Stopped before completion; some items may already have been processed', 'warn');
           }
           catch (error) {
-              log(error instanceof Error ? (error.stack ?? error.message) : String(error), 'error');
+              console.error(error); // full stack for debugging
+              log(errorMessage(error), 'error');
           }
           finally {
               this.running = false;
@@ -1351,7 +1244,7 @@
        */
       async addToAlbum(items) {
           let album = await this.api.getAlbum(this.targetAlbum.id);
-          if (!album) { log(`Album "${this.targetAlbum.label}" was not found any more. Press "Refresh albums".`, 'error'); return; }
+          if (!album) throw new Error(`Album "${this.targetAlbum.label}" was not found any more. Press "Refresh albums".`);
           log(`Adding to "${album.label}" (currently ${album.itemIds.length} item(s))`);
 
           const already = new Set();
@@ -1379,14 +1272,11 @@
               catch (error) {
                   log(`Saving the album failed (${errorMessage(error)}); reloading it and retrying once`, 'warn');
                   album = await this.api.getAlbum(album.id);
-                  if (!album) { log('The album disappeared', 'error'); return; }
-                  saved = await this.api.saveAlbumItems(album, [...album.itemIds, ...ids]);
+                  if (!album) throw new Error('The album disappeared');
+                  saved = await this.api.saveAlbumItems(album, [...album.itemIds, ...ids.filter((id) => !album.itemIds.includes(id))]);
               }
               const missing = ids.filter((id) => !saved.itemIds.includes(id));
-              if (missing.length) {
-                  log(`STOPPED: GoPro saved the album but ${missing.length} new item(s) are not in it. Nothing else was sent.`, 'error');
-                  return;
-              }
+              if (missing.length) throw new Error(`STOPPED: GoPro saved the album but ${missing.length} new item(s) are not in it. Nothing else was sent.`);
               album = saved;
               added += ids.length;
               log(`Added ${added}/${todo.length} (album now has ${album.itemIds.length} item(s))`);
@@ -1403,10 +1293,9 @@
           await runPool(list, 4, async (item, idx) => {
               try {
                   const moments = await this.api.getMoments(item.id);
-                  const unit = inferMomentUnit(moments, item.durationMs);
                   if (moments.length) withTags++;
                   item.moments = moments.length;
-                  rows[idx] = `  ${item.filename ?? item.id}: ${moments.length ? moments.map((m) => formatClock(toSeconds(m.time, unit))).join(', ') : 'no HiLights'}`;
+                  rows[idx] = `  ${item.filename ?? item.id}: ${moments.length ? moments.map((m) => formatClock(toSeconds(m.time))).join(', ') : 'no HiLights'}`;
               }
               catch (error) { rows[idx] = `  ${item.filename ?? item.id}: could not read (${errorMessage(error)})`; }
               if (++done % 50 === 0) log(`Read ${done}/${list.length}`);
@@ -1422,15 +1311,14 @@
       async testHilightEditing(item, atSeconds) {
           if (this.running) { log('Another task is already running', 'error'); return null; }
           this.running = true; this.notify();
-          const result = { add: false, remove: false, unit: 'ms', clip: item.filename ?? item.id, testedAt: new Date().toISOString(), detail: '' };
+          const result = { add: false, remove: false, clip: item.filename ?? item.id, testedAt: new Date().toISOString(), detail: '' };
           const done = (detail, cls = 'warn') => { result.detail = detail; log(detail, cls); setStored('hilightApi', result); return result; };
           try {
               const before = await this.api.getMoments(item.id);
-              result.unit = inferMomentUnit(before, item.durationMs);
-              log(`Test on ${result.clip}: ${before.length} existing tag(s); time unit assumed: ${result.unit === 's' ? 'seconds' : 'milliseconds'}`);
+              log(`Test on ${result.clip}: ${before.length} existing tag(s)`);
               let sec = Number.isFinite(atSeconds) && atSeconds > 0 ? atSeconds : (item.durationMs ? item.durationMs / 2000 : 1);
-              let t = fromSeconds(sec, result.unit);
-              while (before.some((m) => m.time === t)) t += result.unit === 's' ? 1 : 500;
+              let t = fromSeconds(sec);
+              while (before.some((m) => m.time === t)) t += 500;
 
               let reply;
               try { reply = await this.api.addMoment(item.id, t); }
@@ -1443,13 +1331,13 @@
               if (!added.length) return done('GoPro accepted the request but no new tag appeared, so adding does not work this way. Nothing else was sent.');
               if (added.length > 1) return done(`STOPPED: ${added.length} tags appeared instead of one. Check this clip in the Quik app.`, 'error');
               const tag = added[0];
-              if (Math.abs(tag.time - t) > (result.unit === 's' ? 1 : 1000)) return done(`STOPPED: the new tag is at ${tag.time}, not ${t} as sent. Check this clip in the Quik app.`, 'error');
+              if (Math.abs(tag.time - t) > 1000) return done(`STOPPED: the new tag is at ${tag.time}, not ${t} as sent. Check this clip in the Quik app.`, 'error');
               result.add = true;
-              log(`Add works: tag appeared at ${formatClock(toSeconds(tag.time, result.unit))}`, 'success');
+              log(`Add works: tag appeared at ${formatClock(toSeconds(tag.time))}`, 'success');
 
               if (!tag.id) return done('Add works, but GoPro gives tags no id, so removing cannot be tested. The test tag is still on the clip; remove it in the Quik app.', 'warn');
               try { await this.api.deleteMoment(item.id, tag.id); }
-              catch (error) { return done(`Add works, but removing does not (${errorMessage(error)}). The test tag is still on ${result.clip} at ${formatClock(toSeconds(tag.time, result.unit))}; remove it in the Quik app.`); }
+              catch (error) { return done(`Add works, but removing does not (${errorMessage(error)}). The test tag is still on ${result.clip} at ${formatClock(toSeconds(tag.time))}; remove it in the Quik app.`); }
               const final = await this.api.getMoments(item.id);
               if (final.some((m) => m.id === tag.id)) return done(`Add works, but the test tag did not go away after removing. It is still on ${result.clip}; remove it in the Quik app.`);
               if (final.length !== before.length) return done(`STOPPED: the clip now has ${final.length} tag(s) instead of ${before.length}. Check it in the Quik app.`, 'error');
@@ -1465,7 +1353,7 @@
           const api = getStored('hilightApi');
           if (!api?.add) throw new Error('Run "Test editing on this clip" first');
           const before = await this.api.getMoments(item.id);
-          const t = fromSeconds(sec, api.unit);
+          const t = fromSeconds(sec);
           if (before.some((m) => m.time === t)) return before;
           await this.api.addMoment(item.id, t);
           const after = await this.api.getMoments(item.id);
@@ -1482,39 +1370,6 @@
           if (after.some((m) => m.id === momentId) || after.length !== before.length - 1) throw new Error(`GoPro now reports ${after.length} tag(s)`);
           item.moments = after.length;
           return after;
-      }
-      async deleteCloud(items) {
-          // always leave a record of what was removed
-          saveTextFile(`gopro-deleted-backup-${stamp()}.csv`, `﻿${itemsToCsv(items)}\r\n`, 'text/csv;charset=utf-8');
-          log(`Saved a CSV backup list of the ${items.length} items about to be deleted`);
-          const chunks = splitIntoChunks(items.map((i) => i.id), this.settings.deleteBatchSize);
-          const deleted = new Set();
-          const failedIds = new Map();
-          let processed = 0;
-          await runPool(chunks, 2, async (ids) => {
-              try {
-                  const errors = await this.api.deleteMedia(ids);
-                  const bad = new Map(errors.filter((e) => e.id).map((e) => [String(e.id), e.description ?? e.reason ?? e.code ?? 'error']));
-                  if (errors.length && !bad.size) {
-                      for (const id of ids) failedIds.set(id, errors[0].description ?? errors[0].reason ?? 'error');
-                  }
-                  else {
-                      for (const id of ids) { if (bad.has(id)) failedIds.set(id, bad.get(id)); else deleted.add(id); }
-                  }
-              }
-              catch (error) {
-                  for (const id of ids) failedIds.set(id, errorMessage(error));
-                  log(`Delete request failed for ${ids.length} item(s): ${errorMessage(error)}`, 'error');
-              }
-              processed += ids.length;
-              if (processed % 50 === 0 || processed === items.length) log(`Processed ${processed}/${items.length}`);
-          }, () => this.running);
-          if (deleted.size && this.library) {
-              this.setLibrary(this.library.filter((i) => !deleted.has(i.id)));
-          }
-          log(`Deleted ${deleted.size} item(s). Failed: ${failedIds.size}.`, failedIds.size ? 'warn' : 'success');
-          for (const [id, why] of [...failedIds].slice(0, 20)) log(`  not deleted ${id}: ${why}`, 'error');
-          if (deleted.size) log('Press "Load library" again to double-check the result against GoPro.');
       }
   }
 
@@ -1612,8 +1467,6 @@
       if (loadBtn) loadBtn.textContent = core.library ? 'Refresh library' : 'Load library';
       for (const b of document.querySelectorAll('.action-bar button, .action-bar input, .action-bar select, #loadLibrary')) b.disabled = core.running;
       try { hlRefreshControls(); } catch { /* editor not built yet */ }
-      const rec = document.getElementById('recordRequests');
-      if (rec) { rec.textContent = recorder.on ? `Stop recording (${recorder.entries.length})` : 'Record GoPro requests'; rec.classList.toggle('recording', recorder.on); }
       const stop = document.getElementById('stopProcess');
       if (stop) stop.style.display = core.running ? 'block' : 'none';
       highlightActiveFilters();
@@ -1656,15 +1509,6 @@
       }
       if ([...select.options].some((o) => o.value === keep)) select.value = keep;
   }
-  function mergeAlbums(found) {
-      const byId = new Map((getStored('albums', []) ?? []).map((a) => [a.id, a]));
-      let added = 0;
-      for (const a of found) { if (!byId.has(a.id)) added++; byId.set(a.id, { ...byId.get(a.id), ...a }); }
-      const list = [...byId.values()].sort((a, b) => a.label.localeCompare(b.label));
-      setStored('albums', list);
-      populateAlbums(list);
-      return added;
-  }
   function selectedAlbum() {
       const id = document.getElementById('albumSelect')?.value;
       return id ? (getStored('albums', []) ?? []).find((a) => a.id === id) ?? null : null;
@@ -1680,13 +1524,6 @@
       if (actionId === 'addToAlbum') {
           lines.push('', `Album: ${selectedAlbum()?.label ?? '?'}`, '', 'Clips already in the album are skipped. Nothing is removed from the album.');
           return window.confirm(`${lines.join('\n')}\n\nProceed?`);
-      }
-      if (actionId === 'deleteCloud') {
-          const everything = core.library && items.length === core.library.length;
-          const phrase = everything ? 'DELETE ALL' : 'DELETE';
-          lines.push('', everything ? 'THIS IS YOUR ENTIRE LIBRARY.' : '', 'This PERMANENTLY deletes the items from your GoPro cloud. It cannot be undone.', 'A CSV list of the deleted items will be saved first.', '', `Type ${phrase} to continue:`);
-          const answer = window.prompt(lines.filter((l, i) => l !== '' || lines[i - 1] !== '').join('\n'));
-          return answer !== null && answer.trim() === phrase;
       }
       return true;
   }
@@ -1733,7 +1570,7 @@
   }
 
   // ─── HiLight editor ───
-  const hl = { item: null, moments: [], unit: 'ms', busy: false, loadSeq: 0 };
+  const hl = { item: null, moments: [], busy: false, loadSeq: 0 };
   function hlEls() {
       const q = (id) => document.getElementById(id);
       return { box: q('hlEditor'), clip: q('hlClip'), count: q('hlCount'), video: q('hlVideo'), tags: q('hlTags'), add: q('hlAdd'), test: q('hlTest'), status: q('hlStatus') };
@@ -1772,7 +1609,7 @@
           tags.appendChild(none);
       }
       for (const m of hl.moments) {
-          const sec = toSeconds(m.time, hl.unit);
+          const sec = toSeconds(m.time);
           const wrap = document.createElement('span'); wrap.className = 'hl-tag';
           const seek = document.createElement('button'); seek.type = 'button'; seek.textContent = formatClock(sec); seek.title = 'Jump here';
           seek.addEventListener('click', () => { try { video.currentTime = sec; } catch { /* not loaded yet */ } });
@@ -1795,8 +1632,6 @@
           const [moments, url] = await Promise.all([core.api.getMoments(hl.item.id), core.api.getPreviewUrl(hl.item.id).catch(() => null)]);
           if (seq !== hl.loadSeq) return;
           hl.moments = moments;
-          const api = getStored('hilightApi');
-          hl.unit = api?.add ? api.unit : inferMomentUnit(moments, hl.item.durationMs);
           hl.item.moments = moments.length;
           count.textContent = `${moments.length} HiLight(s) · ${formatDurationMs(hl.item.durationMs ?? NaN) || '?'}`;
           if (url) video.src = url; else { video.removeAttribute('src'); hlStatus('No preview available for this clip.', 'bad'); }
@@ -1853,11 +1688,11 @@
       });
   }
   async function hlRemove(m) {
-      if (!window.confirm(`Remove the HiLight at ${formatClock(toSeconds(m.time, hl.unit))} from ${hl.item?.filename}?`)) return;
+      if (!window.confirm(`Remove the HiLight at ${formatClock(toSeconds(m.time))} from ${hl.item?.filename}?`)) return;
       await hlRun(async () => {
           try {
               hl.moments = await core.removeHilight(hl.item, m.id);
-              hlStatus(`Removed the HiLight at ${formatClock(toSeconds(m.time, hl.unit))}.`, 'ok');
+              hlStatus(`Removed the HiLight at ${formatClock(toSeconds(m.time))}.`, 'ok');
               log(`Removed HiLight from ${hl.item.filename}`, 'success');
           }
           catch (error) { hlStatus(`Could not remove: ${errorMessage(error)}`, 'bad'); log(`Could not remove HiLight: ${errorMessage(error)}`, 'error'); }
@@ -1874,7 +1709,7 @@
           hlStatus('Testing…');
           const result = await core.testHilightEditing(hl.item, sec);
           hlStatus(...hlApiStatusText());
-          if (result) { hl.moments = await core.api.getMoments(hl.item.id).catch(() => hl.moments); hl.unit = result.unit; }
+          if (result) { hl.moments = await core.api.getMoments(hl.item.id).catch(() => hl.moments); }
           hlRenderTags();
       });
   }
@@ -1959,26 +1794,6 @@
       document.getElementById('hlClip').addEventListener('change', (e) => void hlSelect(e.target.value));
       document.getElementById('hlAdd').addEventListener('click', () => void hlAdd());
       document.getElementById('hlTest').addEventListener('click', () => void hlTest());
-      document.getElementById('exportAlbumData').addEventListener('click', () => {
-          const pages = core.api.lastAlbumPages;
-          if (!pages?.length) { log('Press "Refresh albums" first'); return; }
-          saveTextFile(`gopro-album-data-${stamp()}.json`, JSON.stringify({ toolkitVersion: VERSION, request: 'GET /media/items?label=mural&type=collection&exclude_root=true', pages }, null, 2), 'application/json');
-          log(`Saved ${pages.length} page(s) of album data. It can contain clip names and ids, but no passwords or tokens.`);
-      });
-      recorder.onAlbums = (found) => {
-          const added = mergeAlbums(found);
-          if (added) log(`Picked up ${added} album(s) from the GoPro page`, 'success');
-      };
-      document.getElementById('recordRequests').addEventListener('click', () => {
-          if (recorder.on) { stopRecorder(); log(`Recording stopped: ${recorder.entries.length} request(s). Press "Export recording" to save them.`); }
-          else { recorder.entries = []; startRecorder(); log('Recording GoPro requests. Use the GoPro page normally (e.g. open your albums, add a clip to an album), then come back and stop.', 'warn'); }
-          updateUI();
-      });
-      document.getElementById('exportRecording').addEventListener('click', () => {
-          if (!recorder.entries.length) { log('Nothing recorded yet'); return; }
-          saveTextFile(`gopro-requests-${stamp()}.json`, JSON.stringify({ toolkitVersion: VERSION, page: location.pathname, entries: recorder.entries }, null, 2), 'application/json');
-          log(`Saved ${recorder.entries.length} recorded request(s). Tokens and signatures in URLs are replaced with REDACTED; the file can still contain clip names and ids.`);
-      });
       for (const id of Object.keys(ACTIONS)) {
           document.getElementById(id)?.addEventListener('click', (e) => { e.preventDefault(); void runAction(id); });
       }
@@ -2007,7 +1822,7 @@
       // settings
       const form = document.querySelector('.settings-form');
       const apply = (s) => {
-          for (const key of ['downloadConcurrency', 'downloadDelayMs', 'deleteBatchSize']) form.querySelector(`input[name="${key}"]`).value = String(s[key]);
+          for (const key of ['downloadConcurrency', 'downloadDelayMs']) form.querySelector(`input[name="${key}"]`).value = String(s[key]);
           form.querySelector('input[name="skipDownloaded"]').checked = s.skipDownloaded;
       };
       apply(normalizeSettings(getStored('settings')));
@@ -2038,7 +1853,8 @@
   }
 
   try {
-      /*TEST_HOOK*/
+      // Under Node (node test.js) hand the pure functions to the test instead of building the UI
+      if (typeof window === 'undefined') { module.exports = { applyFilters, computeDuplicateIds, validateFilter, normalizeItem, toSeconds, fromSeconds }; return; }
       init();
   }
   catch (error) {

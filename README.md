@@ -1,6 +1,6 @@
 # GoPro Cloud Toolkit
 
-A [Tampermonkey](https://www.tampermonkey.net/) userscript for bulk-organizing your media on the GoPro cloud (gopro.com). It adds a panel to the GoPro media library where you can filter your whole library, then act on everything that matches: add it to an album, find clips by HiLight tags, export the metadata, download it, or delete it.
+A [Tampermonkey](https://www.tampermonkey.net/) userscript for bulk-organizing your media on the GoPro cloud (gopro.com). It adds a panel to the GoPro media library where you can filter your whole library, then act on everything that matches: add it to an album, find clips by HiLight tags, export the metadata, or download it. It never deletes your photos or videos from the GoPro cloud.
 
 > **Unofficial.** This script uses the same private web API that gopro.com uses when you're signed in. GoPro can change that API at any time, and automated use may go against GoPro's terms. Use it at your own risk.
 
@@ -20,7 +20,6 @@ A [Tampermonkey](https://www.tampermonkey.net/) userscript for bulk-organizing y
 - **Export**: metadata as CSV or JSON, or temporary download links in a format the aria2 downloader can read.
 - **Download**: downloads the original files in bulk and remembers which ones you already have.
 - **Duplicate finder**: finds copies with the same filename, size and capture time, and keeps the oldest upload out of the results.
-- **Delete from cloud**: permanently deletes the matches (see the warning below).
 - **Dry run**: tick it to see what any action *would* do without changing anything.
 
 ## Install
@@ -56,22 +55,19 @@ Open the **HiLight Tags** filter:
 
 Then click **List HiLights** to see where each clip's tags are, or click **HiLight Editor** to watch the clips and add or remove tags.
 
-## ⚠️ Delete is permanent
-
-**Delete** removes the matching files from your GoPro cloud, and you can't get them back. Before you delete anything:
-
-- Run it once with **Dry run** ticked and read the list.
-- Make sure you have a copy of anything you want to keep (you can use **Download**).
-
 ## Settings
 
-Open **Advanced Settings** to change how many files download at once, the delay between downloads, the delete batch size, and whether files you already downloaded are skipped. **Record GoPro requests** saves what GoPro's own page sends to its API, without passwords or tokens. That helps fix the script if GoPro changes something.
+Open **Advanced Settings** to change how many files download at once, the delay between downloads, and whether files you already downloaded are skipped.
 
 ## Troubleshooting
 
 - **No camera button:** make sure the script is turned on in Tampermonkey and you're on a `gopro.com` page. On Chrome/Edge, check step 2 of Install.
 - **Errors after loading or saving:** you may have been signed out. Reload gopro.com, sign in, and try again.
-- **Something stopped working:** GoPro may have changed its site. [Open an issue](https://github.com/GuerraSa/gopro-toolkit/issues) and attach an export from **Record GoPro requests**.
+- **Something stopped working:** GoPro may have changed its site. [Open an issue](https://github.com/GuerraSa/gopro-toolkit/issues) and paste the lines from the toolkit's log. Don't post download links: anyone who has one can download that clip.
+
+## Development
+
+Run the tests with `node test.js`.
 
 ## License
 
